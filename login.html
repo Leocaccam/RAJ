@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign In — Submittal Log</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .loginwrap{ max-width:400px; margin: 12vh auto 0; padding: 0 20px; }
+  .loginbrand{ display:flex; align-items:center; gap:12px; margin-bottom:24px; justify-content:center; }
+  .loginbrand h1{ font-family:'IBM Plex Mono',monospace; font-size:22px; letter-spacing:2px; margin:0; text-transform:uppercase; }
+  .err{ color: var(--red); font-size:13px; margin-top:10px; min-height:16px; }
+</style>
+</head>
+<body>
+<div class="loginwrap">
+  <div class="loginbrand">
+    <svg viewBox="0 0 24 24" width="32" height="32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="12" r="10" stroke="#14324D" stroke-width="1.6"/>
+      <path d="M8 15l4-8 4 8" stroke="#14324D" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M9.4 12h5.2" stroke="#14324D" stroke-width="1.6"/>
+    </svg>
+    <h1>Submittal Log</h1>
+  </div>
+
+  <div class="formcard" style="max-width:none;">
+    <form id="loginForm">
+      <div class="field">
+        <label for="email">Email</label>
+        <input type="email" id="email" required autocomplete="username">
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" required autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn primary" style="width:100%;justify-content:center;">Sign in</button>
+      <div class="err" id="err"></div>
+    </form>
+  </div>
+  <footer class="hint">Sign-in is created for you in the Firebase console — see the README.<br><a href="index.html">← Back to the log (view only)</a></footer>
+</div>
+
+<script type="module">
+import { auth, doSignIn } from './firebase.js';
+import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js';
+
+// already signed in? skip straight to the log
+onAuthStateChanged(auth, user => { if(user) location.href = 'index.html'; });
+
+document.getElementById('loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const errEl = document.getElementById('err');
+  errEl.textContent = '';
+  try{
+    await doSignIn(email, password);
+    location.href = 'index.html';
+  }catch(err){
+    errEl.textContent = 'Could not sign in — check your email and password.';
+    console.error(err);
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Submittal Log</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <div class="titleblock">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="12" cy="12" r="10" stroke="#14324D" stroke-width="1.6"/>
+        <path d="M12 2v20M2 12h20" stroke="#14324D" stroke-width="1" opacity="0.5"/>
+        <path d="M8 15l4-8 4 8" stroke="#14324D" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M9.4 12h5.2" stroke="#14324D" stroke-width="1.6"/>
+      </svg>
+      <div>
+        <h1>Submittal Log</h1>
+        <p>Document control &amp; deadline register</p>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div class="stamp" id="dateStamp"></div>
+      <a class="btn primary" id="loginBtn" href="login.html" style="display:none;">Login</a>
+      <button class="btn ghost" id="signOutBtn" style="display:none;">Sign out</button>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat overdue"><div class="num" id="statOverdue">0</div><div class="label">Overdue</div></div>
+    <div class="stat soon"><div class="num" id="statSoon">0</div><div class="label">Due within 2 days</div></div>
+    <div class="stat ontrack"><div class="num" id="statOntrack">0</div><div class="label">On track</div></div>
+  </div>
+
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="Search description or reviewer…">
+    <select id="filter">
+      <option value="all">All statuses</option>
+      <option value="red">Overdue</option>
+      <option value="amber">Due soon</option>
+      <option value="green">On track</option>
+      <option value="grey">No deadline</option>
+    </select>
+    <div class="spacer"></div>
+    <div id="editControls" style="display:none;gap:10px;align-items:center;">
+      <button class="btn ghost" id="exportBtn">Export backup</button>
+      <button class="btn ghost" id="importBtn">Import backup</button>
+      <input type="file" id="importFile" accept="application/json" style="display:none">
+      <a class="btn primary" href="add.html">+ New entry</a>
+    </div>
+  </div>
+
+  <div class="tablecard">
+
+    <div class="loaderwrap" id="loaderWrap">
+      <div class="loader"></div>
+      <div class="loadertext">Syncing submittal log…</div>
+    </div>
+
+    <div id="tablecardInner" style="display:none;">
+      <table>
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th>Reviewer / Discipline</th>
+            <th>Received</th>
+            <th>Deadline</th>
+            <th style="text-align:right">Days</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div class="empty" id="emptyState" style="display:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+        <div>No submittals logged yet.</div>
+        <div id="emptyActions"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <footer class="hint" id="hintText">Connecting…</footer>
+</div>
+
+<script type="module">
+import { watchAuth, doSignOut, subscribeItems, deleteItem, exportItems, replaceAllItems, mergeItems } from './firebase.js';
+
+const SAMPLE_DATA = [
+  { description:'Material Approval - Chain Link Fence and Post', reviewer:'Team Site', received:'2026-08-05', deadline:'2026-08-12' },
+  { description:'Material Approval - Galvanized Iron Pipes (Handrails)', reviewer:'Team Site', received:'2026-08-05', deadline:'2026-08-12' },
+  { description:'CFD Report', reviewer:'OEC', received:'2026-08-06', deadline:'2026-08-10' },
+  { description:'Third Party Inspector for MCC', reviewer:'JVS, Site is done', received:'2026-08-06', deadline:'2026-08-12' },
+  { description:'Material Approval for Y Strainer (Steel)', reviewer:'JVS', received:'', deadline:'2026-08-10' },
+  { description:'Structural Drawing and Calculation - Dehydrator Room', reviewer:'Harvey', received:'', deadline:'2026-08-14' },
+  { description:'Fuel Pump', reviewer:'JVS', received:'', deadline:'2026-08-14' },
+  { description:'Equipment Foundation Plot Plan for Screening Area', reviewer:'JVS, Harvey', received:'', deadline:'2026-08-16' },
+  { description:'Material Approval - Waterproofing (Roofing and Parapet)', reviewer:'Team Site', received:'', deadline:'2026-08-14' },
+  { description:'Material Approval for Dismantling Joint', reviewer:'JVS', received:'', deadline:'2026-08-15' },
+  { description:'Material Approval - Electrical PVC Material', reviewer:'Team Site and Leo', received:'', deadline:'2026-08-18' },
+  { description:'Method Statement - Installation of Sludge Scraper', reviewer:'Team Site', received:'', deadline:'2026-08-18' },
+  { description:'Stainless-Steel Piping Fabrication and Installation', reviewer:'Team Site', received:'', deadline:'2026-08-14' },
+];
+
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function daysRemaining(deadline){
+  if(!deadline) return null;
+  const today = new Date(todayStr() + 'T00:00:00');
+  const dl = new Date(deadline + 'T00:00:00');
+  return Math.round((dl - today) / 86400000);
+}
+function statusOf(deadline){
+  const d = daysRemaining(deadline);
+  if(d === null) return 'grey';
+  if(d < 0) return 'red';
+  if(d <= 2) return 'amber';
+  return 'green';
+}
+function fmtDate(iso){
+  if(!iso) return '—';
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month:'short', day:'2-digit', year:'numeric' });
+}
+function fmtDayLabel(deadline){
+  const d = daysRemaining(deadline);
+  if(d === null) return '—';
+  if(d === 0) return 'Due today';
+  if(d > 0) return '+' + d;
+  return String(d);
+}
+function escapeHtml(str){
+  const d = document.createElement('div');
+  d.textContent = str || '';
+  return d.innerHTML;
+}
+
+document.getElementById('dateStamp').innerHTML = `TODAY<br><b>${fmtDate(todayStr())}</b>`;
+
+let search = '';
+let filter = 'all';
+let latestItems = [];
+let isLoggedIn = false;
+
+function render(items){
+  latestItems = items;
+  const enriched = items.map(it => ({ ...it, days: daysRemaining(it.deadline), status: statusOf(it.deadline) }));
+
+  enriched.sort((a,b) => {
+    if(a.days === null && b.days === null) return 0;
+    if(a.days === null) return 1;
+    if(b.days === null) return -1;
+    return a.days - b.days;
+  });
+
+  const q = search.trim().toLowerCase();
+  const filtered = enriched.filter(it => {
+    if(filter !== 'all' && it.status !== filter) return false;
+    if(!q) return true;
+    return (it.description||'').toLowerCase().includes(q) || (it.reviewer||'').toLowerCase().includes(q);
+  });
+
+  document.getElementById('statOverdue').textContent = enriched.filter(i=>i.status==='red').length;
+  document.getElementById('statSoon').textContent = enriched.filter(i=>i.status==='amber').length;
+  document.getElementById('statOntrack').textContent = enriched.filter(i=>i.status==='green').length;
+
+  const tbody = document.getElementById('tbody');
+  const emptyState = document.getElementById('emptyState');
+  const emptyActions = document.getElementById('emptyActions');
+
+  emptyActions.innerHTML = isLoggedIn
+    ? `<a href="add.html">Add your first entry →</a> &nbsp;or&nbsp; <a href="#" id="loadSampleLink">load sample data</a>`
+    : `Nothing here yet — check back later.`;
+  if(isLoggedIn){
+    const link = document.getElementById('loadSampleLink');
+    if(link) link.addEventListener('click', async e => { e.preventDefault(); await mergeItems(SAMPLE_DATA); });
+  }
+
+  if(items.length === 0){
+    tbody.innerHTML = '';
+    emptyState.style.display = 'block';
+    return;
+  }
+  emptyState.style.display = 'none';
+
+  if(filtered.length === 0){
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--grey);padding:30px;">No entries match your search/filter.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(it => `
+    <tr>
+      <td class="desc" data-label="Description"><span class="bar ${it.status}"></span>${escapeHtml(it.description || '(untitled)')}</td>
+      <td class="reviewer" data-label="Reviewer">${escapeHtml(it.reviewer || '—')}</td>
+      <td data-label="Received">${fmtDate(it.received)}</td>
+      <td data-label="Deadline">${fmtDate(it.deadline)}</td>
+      <td class="daycol" data-label="Days"><span class="pill ${it.status}">${fmtDayLabel(it.deadline)}</span></td>
+      <td>
+        ${isLoggedIn ? `
+        <div class="rowactions">
+          <a class="iconbtn" href="add.html?id=${encodeURIComponent(it.id)}" title="Edit">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          </a>
+          <button class="iconbtn del" title="Delete" data-id="${it.id}">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+          </button>
+        </div>` : ''}
+      </td>
+    </tr>
+  `).join('');
+
+  if(isLoggedIn){
+    tbody.querySelectorAll('.iconbtn.del').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if(!confirm('Delete this entry?')) return;
+        deleteItem(btn.dataset.id).catch(e => alert('Could not delete: ' + e.message));
+      });
+    });
+  }
+}
+
+document.getElementById('search').addEventListener('input', e => { search = e.target.value; render(latestItems); });
+document.getElementById('filter').addEventListener('change', e => { filter = e.target.value; render(latestItems); });
+document.getElementById('exportBtn').addEventListener('click', () => exportItems());
+document.getElementById('importBtn').addEventListener('click', () => document.getElementById('importFile').click());
+document.getElementById('importFile').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if(!file) return;
+  try{
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if(!Array.isArray(data)) throw new Error('Not a valid backup file');
+    const replace = confirm(`Import ${data.length} entr${data.length===1?'y':'ies'}? This will replace everyone's current log. Click Cancel to merge instead.`);
+    if(replace){ await replaceAllItems(data); } else { await mergeItems(data); }
+  }catch(err){
+    alert('Could not import that file: ' + err.message);
+  }
+  e.target.value = '';
+});
+document.getElementById('signOutBtn').addEventListener('click', () => doSignOut());
+
+// Show the log to everyone, logged in or not. watchAuth just tells us whether
+// to reveal the editing controls — it never redirects anyone away.
+watchAuth(user => {
+  isLoggedIn = !!user;
+  document.getElementById('loginBtn').style.display = isLoggedIn ? 'none' : 'inline-flex';
+  document.getElementById('signOutBtn').style.display = isLoggedIn ? 'inline-flex' : 'none';
+  document.getElementById('editControls').style.display = isLoggedIn ? 'flex' : 'none';
+  document.getElementById('hintText').textContent = isLoggedIn
+    ? 'Synced live — changes here appear on all signed-in devices.'
+    : 'View only — log in (top right) to add or edit entries.';
+  render(latestItems);
+});
+
+let firstLoadDone = false;
+subscribeItems(items => {
+  if(!firstLoadDone){
+    firstLoadDone = true;
+    document.getElementById('loaderWrap').style.display = 'none';
+    document.getElementById('tablecardInner').style.display = 'block';
+  }
+  render(items);
+});
+</script>
+</body>
+</html>

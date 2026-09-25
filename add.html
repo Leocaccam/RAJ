@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>New Entry — Submittal Log</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <div class="titleblock">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="12" cy="12" r="10" stroke="#14324D" stroke-width="1.6"/>
+        <path d="M12 2v20M2 12h20" stroke="#14324D" stroke-width="1" opacity="0.5"/>
+        <path d="M8 15l4-8 4 8" stroke="#14324D" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M9.4 12h5.2" stroke="#14324D" stroke-width="1.6"/>
+      </svg>
+      <div>
+        <h1 id="pageTitle">New Entry</h1>
+        <p>Log a document for tracking</p>
+      </div>
+    </div>
+    <a class="btn ghost" href="index.html">← Back to log</a>
+  </div>
+
+  <div class="formcard">
+    <form id="entryForm">
+      <div class="field">
+        <label for="description">Description</label>
+        <input type="text" id="description" placeholder="e.g. Material Approval – Chain Link Fence and Post" required>
+      </div>
+
+      <div class="field">
+        <label for="reviewer">Reviewer assigned / discipline</label>
+        <input type="text" id="reviewer" placeholder="e.g. Team Site, JVS, OEC">
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <label for="received">Received date</label>
+          <input type="date" id="received">
+        </div>
+        <div class="field">
+          <label for="deadline">Deadline</label>
+          <input type="date" id="deadline">
+        </div>
+      </div>
+
+      <div class="formactions">
+        <button type="submit" class="btn primary" id="saveBtn">Save entry</button>
+        <a class="btn ghost" href="index.html">Cancel</a>
+        <button type="button" class="btn danger" id="deleteBtn" style="display:none;margin-left:auto;">Delete</button>
+      </div>
+      <div id="status" style="margin-top:14px;font-size:13px;font-weight:600;"></div>
+    </form>
+  </div>
+
+  <footer class="hint">Leave deadline blank if not yet set — it will show as "no deadline" until you update it.</footer>
+</div>
+
+<script type="module">
+import { requireAuth, getItem, addItem, updateItem, deleteItem } from './firebase.js';
+
+const params = new URLSearchParams(location.search);
+const editId = params.get('id');
+
+requireAuth(async () => {
+  if(editId){
+    const item = await getItem(editId);
+    if(item){
+      document.getElementById('pageTitle').textContent = 'Edit Entry';
+      document.getElementById('description').value = item.description || '';
+      document.getElementById('reviewer').value = item.reviewer || '';
+      document.getElementById('received').value = item.received || '';
+      document.getElementById('deadline').value = item.deadline || '';
+      document.getElementById('deleteBtn').style.display = 'inline-flex';
+    }
+  }
+});
+
+function setStatus(text, color){
+  const el = document.getElementById('status');
+  el.textContent = text;
+  el.style.color = color || 'var(--navy-dim)';
+}
+
+function withTimeout(promise, ms, label){
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms/1000}s — likely a Firestore rules or network problem, not your data.`)), ms))
+  ]);
+}
+
+document.getElementById('entryForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  console.log('[submittal-log] Save clicked');
+  const saveBtn = document.getElementById('saveBtn');
+  const payload = {
+    description: document.getElementById('description').value.trim(),
+    reviewer: document.getElementById('reviewer').value.trim(),
+    received: document.getElementById('received').value,
+    deadline: document.getElementById('deadline').value,
+  };
+  saveBtn.disabled = true;
+  setStatus('Saving…');
+  try{
+    if(editId){
+      console.log('[submittal-log] updating', editId, payload);
+      await withTimeout(updateItem(editId, payload), 10000, 'Update');
+    }else{
+      console.log('[submittal-log] adding', payload);
+      await withTimeout(addItem(payload), 10000, 'Add');
+    }
+    console.log('[submittal-log] save succeeded');
+    setStatus('Saved! Redirecting…', 'var(--green)');
+    location.href = 'index.html';
+  }catch(err){
+    console.error('[submittal-log] save failed', err);
+    setStatus('Could not save — ' + err.message, 'var(--red)');
+    alert('Could not save: ' + err.message);
+  }finally{
+    saveBtn.disabled = false;
+  }
+});
+
+document.getElementById('deleteBtn').addEventListener('click', async () => {
+  if(!editId) return;
+  if(!confirm('Delete this entry?')) return;
+  try{
+    await deleteItem(editId);
+    location.href = 'index.html';
+  }catch(err){
+    alert('Could not delete: ' + err.message);
+  }
+});
+</script>
+</body>
+</html>
